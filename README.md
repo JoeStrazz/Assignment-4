@@ -247,5 +247,7 @@ ggplot() +
                          height = unit(1, 'cm')) +
   theme_minimal()
 ```
+!['Map of Meteorological Stations'](map.png)
 
 The generation of a map reveals that there is a good spread of stations across the entirety of province with the North sparse in stations compared to the southern portion of the province. It should also be noted that the island of Hadia Gwaii has no station points.  
+
