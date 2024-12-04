@@ -247,7 +247,7 @@ ggplot() +
                          height = unit(1, 'cm')) +
   theme_minimal()
 ```
-stationmap.png
+![stationmap](https://github.com/user-attachments/assets/88f53929-b662-4b51-98de-335a4224ec84)
 
 The generation of a map reveals that there is a good spread of stations across the entirety of province with the North sparse in stations compared to the southern portion of the province. It should also be noted that the island of Hadia Gwaii has no station points.  
 
