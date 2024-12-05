@@ -1,3 +1,11 @@
+## Introduction 
+
+It is often believed that areas of land that receive higher amounts of precipitation during winter months will experience less forest fires during the summer months. In this tutorial we will uncover if this true and instruct you how to compare point data representing an event to interpolated data. To do that we will be asking, do areas that receive less precipitation during the winter months experience more fires during the summer months? 
+
+To do so, after interpolating the surface of BC to assume the daily average of precipitation during the winter months, we will contrast this to point data representing forest fires during the summer, to determine if precipitation during the winter month influences the occurrence of fires during the summer.
+
+Lets get started! 
+
 ## PART A: PROJECT SETUP 
 
 ### Step 1: Install Packages 
@@ -575,3 +583,132 @@ kde.SG <- cbind(kde.SG, as(kde.5k, "SpatialGridDataFrame"))
 names(kde.SG) <- c("sigma.100m", "sigma.500m", "sigma.1km", "sigma.5km")
 spplot(kde.SG)
 ```
+![KDE](https://github.com/user-attachments/assets/1b6ab872-64d3-46c6-9aaf-27101e40dfa5)
+
+Examing the heat maps, we can the occurrence of clustering, yet it is very weak. Recall the average distance between fires when we conducted the NND. It appears, 2022 saw the occurence of smaller fires somwhat clustered. This is similar to what we discovered when analyzing our results from the descriptive statistics.  
+
+## Part F: Join Data 
+
+### Step 1: Join Independent and Dependent Data
+
+We did it! We finally reached the point where we have pulled in and cleaned our independent and dependent data. Through this process we were able to get an understanding of both data sets  and get a sense of what we are actually measuring. 
+
+Let’s go ahead and combine these two data sets together using the st_join command, which keeps spatial information, after saving it to a .csv. We can then  carry on to the next step. 
+
+Here is the code: 
+```{r}
+joined_data <- st_join(idw_clipped, 
+                       density_sf, 
+                       join = st_intersects)
+
+final_data <- joined_data[, c('var1.pred','FIRE')]|>
+  rename(PRECIP = var1.pred)
+
+final_data$FIRE[is.na(final_data$FIRE)]<- 0
+
+st_write(final_data, 'final_data.shp', delete_dsn = TRUE)
+
+final_data_df <- st_drop_geometry(final_data)
+
+write.csv(final_data_df, 'final_data.csv', row.names = FALSE)
+```
+## PART G: ORDINARY LEAST SQUARE
+
+This statistical test is used to estimate values unable to be determined by a linear regression model (Grekousis, 2020). What is being measured is an independent variable against a dependent variable. The output of this test is a regression line. The line is representative of; when the independent variable unit changes, how much does the dependent variable change on average (Grekousis, 2020). 
+
+For example, if I had data that shows the price of houses and their distance from a metro station, the house of the price would be dependent on the how far or how close it is to the metro station. A regression line would indicate every time the distance from a metro station increases, on average how much does the price of the house decrease. After application, the residuals will show how well the model is actually preforming. It subtracts the sample value from the predicted value. If it is a low value, that is an indication that the model did a good job in predicting. If it is high, the model is doing a poor job in predicting.  
+
+Ordinary Least Square  (OLS) is calculated as so: 
+
+$$ \hat{y} = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \ldots + \beta_n x_n $$
+
+### Step 1: Calculate OLS on Independent and Dependent Data
+
+Let’s get an understanding of how our data performs under an OLS. We can use the lm( ) command to help us out with that, and it is in our best interest to log both our variables because the data was skewed, presenting us with poor results. 
+
+After adding a new column with the residual we can then generate a map showing the results of the residuals across the province. 
+
+This is how we would calculate OLS on our recently joined data using R: 
+
+```{r}
+final_data_sf <- st_read('C:/Users/jstra/OneDrive/Documents/GEOG418_Assignment_4/final_data.shp')
+
+ols_model <- lm(log(FIRE + 1) ~ log(PRECIP + 1), data = final_data_sf)
+
+final_data_sf$residuals <- resid(ols_model)
+
+ggplot(final_data_sf) +
+  geom_sf(aes(fill = residuals)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  labs(title = "Residuals from OLS Regression", fill = "Residuals") +
+  theme_minimal()
+
+st_write(final_data_sf, "final_data_with_residuals.shp", delete_dsn = TRUE)
+```
+![OLS](https://github.com/user-attachments/assets/101de68c-1450-43c6-9fd1-d7d1dae3af9b)
+
+What we can gather from the map is that the model performs well in the northern part of the province but, less so in southern part of the province. This indicates that other factors beside precipitation are at play for the occurrence of forest fires during the summer period. 
+
+## Part H: Geographically Weighted Regression 
+
+In contrast to Ordinary Least Squares, which is a global linear regression model, GWR is used to determine the heterogeneity between an independent variable and a dependent variable at a local level (Grekousis, 2020). A fitted weighted linear regression is applied to every variable under analysis (Grekousis, 2020). This means that regression coefficients are going to vary across the study area. This is in contrast to OLS where a global intercept and a global coefficient are used. What enables this difference in coefficients is the application of a spatial kernel that provides geographic weighting using the bandwidth to calculate distance (Grekousis, 2020). As it is a kernel every location is going to be calculated. This presents the situation in which objects closer will be weighted more than those farther away (Grekousis, 2020). Ultimately, what is attempted to be achieved is to identify trends with a geographic lens, that is, now that analysis has been boiled down to a local level, we want to ask is why is the relationship between the variables strong at one location compared to another. 
+
+### Step 1: Apply GWR to our Independent and Dependent Data
+
+We are now able to complete our final task and get an understanding of how much of an influence winter precipitation plays on the occurrence of forest fires. 
+
+In order to execute this task, we are going to log our Forest Fire data due to the skewness as we did earlier with OLS. We can then use the gwr( ) command with selecting a bandwidth of 20,000 due to size of our study area. After setting this to a data frame we can map out outputs. 
+
+This is the code to execute this final task: 
+
+```{r}
+# STEP 1: Perform GWR
+
+final_data_sf <- st_read('C:/Users/jstra/OneDrive/Documents/GEOG418_Assignment_4/final_data.shp')
+
+final_data_sf$log_FIRE <- log(final_data_sf$FIRE + 1)
+
+final_data_sp <- as_Spatial(final_data_sf)
+
+gwr_model_fixed <- gwr(log_FIRE ~ PRECIP, 
+                       data = final_data_sp, 
+                       bandwidth= 200000 )
+
+gwr_results_fixed <- as.data.frame(gwr_model_fixed$SDF)
+
+centroids <- st_centroid(final_data_sf)
+
+coordinates_centroids <- st_coordinates(centroids)
+
+gwr_results_fixed <- cbind(gwr_results_fixed, coordinates_centroids)
+
+gwr_output_sf_fixed <- st_as_sf(gwr_results_fixed, 
+                                coords = c("X", "Y"), 
+                                crs = st_crs(final_data_sf))
+
+ggplot(gwr_output_sf_fixed) + 
+  geom_sf(aes(colour = PRECIP)) +
+  scale_fill_viridis_c(option = 'C') +
+  theme_minimal() +
+  labs(title = "Spatial Variation of PRECIP Coefficient (GWR)")
+
+ggplot(gwr_output_sf_fixed) + 
+  geom_sf(aes(colour = localR2)) +
+  scale_fill_viridis_c(option = 'C') +
+  theme_minimal() +
+  labs(title = "Local R2 Performance")
+```
+![PRECIP](https://github.com/user-attachments/assets/0ac75158-5357-449a-96a4-456cf0b10a96)
+
+
+After mapping our results, we can see the difference in coefficients. Initially, what these maps are showcasing is how much does the independent variable influence the dependent variable at a local level.
+
+So, we are interested in locating a inverse relationship, so where the coefficient is negative. Areas on the map that show a negative coefficient is suggesting that, as winter precipitation increases, the number of forest fires in the summer decreases. In the map, it does not appear to occur too heavily, but showing darker values along the coast and the North East corner of the province.
+
+![r2](https://github.com/user-attachments/assets/5310d535-bfe3-4a9a-b319-0671f77f64eb)
+
+On the other hand this map showing the results of the $$R^2$$ value speaks to the variability that is occurring with the forest fire data. A higher value indicates that the GWR model is performing well, whereas the lower values speak to the opposite. 
+
+## Conclusion 
+
+Through the analysis of two data set we are able to gain further insight into their relationship and how much of an influence does one have on another. We can see that Precipitation showed influence on forest fires more so along the coast and the North Eastern province and not play a great influence for the center of the province. We can also be reassured as the $$R^2$$ shows values along the coast performed well and the center of the province.
